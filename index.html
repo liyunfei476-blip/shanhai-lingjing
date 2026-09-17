@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#eee6d4"><meta name="description" content="御使墨灵，连接古树，争夺灵脉。竖屏国风策略小游戏。">
+  <title>山海灵境 · 连树成林</title>
+  <link rel="icon" href="data:,">
+  <script>if(location.protocol==='file:'&&decodeURIComponent(location.pathname).endsWith('/index.html'))location.replace(new URL('./dist/山海灵境.html',location.href));</script>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <aside class="desktop-poem" aria-hidden="true"><div class="side-seal">一纸<br>山河</div><p>落墨成灵<br>方寸之间争山河</p><span>水 墨 · 策 略 · 博 弈</span></aside>
+  <main id="game-shell">
+    <header class="game-header">
+      <div class="brand"><span class="brand-mark">灵</span><div><h1>山海灵境</h1><p>连树成林 · 引墨归山</p></div></div>
+      <div class="header-actions"><button id="help-button" class="icon-button" aria-label="玩法说明">?</button><button id="settings-button" class="icon-button" aria-label="设置与暂停"><svg viewBox="0 0 24 24"><path d="M4 7h16M4 17h16M8 4v6M16 14v6"/></svg></button><button id="exit-button" class="icon-button" aria-label="退出对局"><svg viewBox="0 0 24 24"><path d="M10 4H5v16h5M10 12h11M17 8l4 4-4 4"/></svg></button></div>
+    </header>
+    <section class="battle-status" aria-label="战场状态"><div><span class="status-label">我方古树</span><strong id="owned-count">一</strong><span class="total-count"> / <span id="total-count">12</span></span></div><div class="battle-caption"><span id="map-name">青木初醒</span><small id="clock">00:00</small></div><div id="faction-counts" class="faction-counts"></div></section>
+    <section id="battlefield" aria-label="山河战场，点击古树查看详情，拖拽己方古树御灵">
+      <canvas id="map-canvas" aria-label="水墨战场"></canvas>
+      <div class="map-inscription" aria-hidden="true"><span id="map-inscription-title">青木初醒</span><small>山 河 入 墨</small></div>
+      <div id="node-controls" class="node-controls" aria-label="可选择的古树"></div>
+      <div class="map-tools"><button id="fit-button" aria-label="恢复全图">全图</button><button id="speed-button" hidden aria-label="切换收官加速">×1</button></div>
+      <div id="resonance-status"></div><div id="group-count" aria-live="polite"></div><div id="event-feed" aria-live="polite"></div>
+    </section>
+    <div class="map-instructions"><div id="gesture-tip">直接划动出灵 · 空白拉圆多选</div><div id="target-hint" hidden><span></span><button id="cancel-target">取消</button></div></div>
+    <section class="command-panel" aria-label="古树详情与出灵设置">
+      <div class="city-info"><div class="city-title"><span id="city-emblem">△</span><div><h2 id="city-name">青木</h2><span id="city-level">一级 · 灵芽</span></div></div><div class="city-stat"><small>驻灵</small><strong id="city-troops">10<span>/12</span></strong></div><div class="city-stat"><small>生机</small><strong id="city-hp">100<span>/100</span></strong></div><button id="upgrade-button" class="upgrade-button"><span>进阶 ↑</span><small>消耗 8 灵</small></button></div>
+      <div class="city-state-line"><span id="city-production">每三秒孕灵一人</span><span id="city-state">青木所属</span></div>
+      <div class="dispatch-row"><label for="ratio">出灵 <b id="ratio-label">50%</b></label><input id="ratio" type="range" min="25" max="100" step="1" value="50" aria-label="出灵比例"><button id="half-button">半数出灵 <span>→</span></button></div>
+    </section>
+    <section class="hand-panel" aria-label="灵符卡牌"><div class="hand-heading"><span>灵 符</span><small id="hand-tip">占树得计 · 最多五张</small><span id="hand-count">3 / 5</span></div><div id="cards" class="cards"></div></section>
+    <footer class="game-footer"><span>守树有方，落子无悔</span><span id="seed-label">山河卷 73129</span></footer>
+    <div id="toast" role="status" aria-live="polite"></div>
+  </main>
+  <aside class="desktop-guide" aria-hidden="true"><span class="guide-chapter">灵 法 · 三 则</span><p><b>调灵</b>画圈选灵，一划齐发</p><p><b>养树</b>以灵蕴养，步步为营</p><p><b>用计</b>虚实相生，一招制胜</p><div class="guide-line"></div><small>单机离线 · 无需登录<br>建议竖屏游玩</small></aside>
+  <dialog id="main-dialog"></dialog>
+  <script type="module" src="src/app.js"></script>
+</body>
+</html>
