@@ -1,9 +1,10 @@
 import { FACTIONS, LEVELS, count, clamp } from './engine.js';
+import { patrolSpirits } from './gestures.js';
 const brush = 'MoBrush, "Kaiti SC", serif';
 const SPRITES={tree1:[70,90,490,540],tree2:[615,20,639,625],tree3:[0,632,747,622],spirit:[797,676,407,539]};
 export class Renderer {
   constructor(canvas,game){
-    this.canvas=canvas;this.ctx=canvas.getContext('2d');this.game=game;this.zoom=1;this.pan={x:0,y:0};this.selected=null;this.group=new Set();this.selectionCircle=null;this.drag=null;this.card=null;this.effects=[];this.reduced=false;this.lastEvent=0;this.sprites=new Map();
+    this.canvas=canvas;this.ctx=canvas.getContext('2d');this.game=game;this.zoom=1;this.pan={x:0,y:0};this.selected=null;this.group=new Set();this.spiritSelection=new Map();this.selectionCircle=null;this.drag=null;this.card=null;this.effects=[];this.reduced=false;this.lastEvent=0;this.sprites=new Map();
     this.backdrop=new Image();this.backdrop.src='./assets/spirit-forest.png';document.documentElement.style.setProperty('--forest-image',`url("${this.backdrop.src}")`);this.atlas=new Image();this.atlas.src='./assets/spirit-atlas.png';this.resize();
   }
   resize(){const r=this.canvas.getBoundingClientRect();this.w=r.width;this.h=r.height;this.dpr=Math.min(devicePixelRatio||1,2);this.canvas.width=this.w*this.dpr;this.canvas.height=this.h*this.dpr;this.baseScale=Math.max(.15,Math.min((this.w-8)/this.game.world.w,(this.h-52)/this.game.world.h));}
@@ -14,6 +15,7 @@ export class Renderer {
   screen(p){const o=this.offset;return{x:p.x*this.scaleX+o.x,y:p.y*this.scale+o.y};}
   world(p){const o=this.offset;return{x:(p.x-o.x)/this.scaleX,y:(p.y-o.y)/this.scale};}
   nodeAt(p){return this.game.nodes.map(n=>{const q=this.screen(n),s=this.scale;return{n,d:Math.hypot((q.x-p.x)/Math.max(24,(25+n.level*3)*s),(q.y-12*s-p.y)/Math.max(32,(34+n.level*4)*s))};}).filter(v=>v.d<1).sort((a,b)=>a.d-b.d)[0]?.n||null;}
+  patrol(n){return patrolSpirits(n,this.screen(n),this.scale,this.reduced?0:this.game.time);}
   roadAt(p){const q=this.world(p);let best=null;this.game.edges.forEach(([a,b],edge)=>{const A=this.game.nodes[a],B=this.game.nodes[b],dx=B.x-A.x,dy=B.y-A.y,t=clamp(((q.x-A.x)*dx+(q.y-A.y)*dy)/(dx*dx+dy*dy),.18,.82),d=Math.hypot(q.x-A.x-t*dx,q.y-A.y-t*dy);if(!best||d<best.d)best={edge,t,d};});return best&&best.d*this.scale<38?best:null;}
   sprite(kind,color){
     if(!this.atlas.complete||!this.atlas.naturalWidth)return null;const key=kind+color;if(this.sprites.has(key))return this.sprites.get(key);
@@ -36,9 +38,11 @@ export class Renderer {
     const halo=c.createRadialGradient(x,y+8,0,x,y+8,r+19);halo.addColorStop(0,color+(resonant?'45':'24'));halo.addColorStop(1,color+'00');c.fillStyle=halo;c.fillRect(x-r-20,y-r-12,2*r+40,2*r+40);
     if(selected||target){c.setLineDash(active?[]:[4,5]);c.beginPath();c.ellipse(x,y+7,r+13,(r+13)*.64,0,0,Math.PI*2);c.strokeStyle=active?'#247762':color;c.lineWidth=active?2:1;c.stroke();c.setLineDash([]);}
     const tree=this.sprite('tree'+n.level,color),height=(68+n.level*10)*s,width=tree?height*tree.width/tree.height:0;
-    const population=count(n),orbitTime=this.reduced?0:this.game.time,patrol=[];
-    for(let i=0;i<population;i++){const lane=Math.floor(i/12),angle=i*2.399963+n.id*.73+orbitTime*(.36-lane*.035),radius=r+12*s+lane*7*s;patrol.push({x:x+Math.cos(angle)*radius,y:y+Math.sin(angle)*radius*.73+5,face:Math.sin(angle)>0?-1:1,phase:orbitTime*8+i});}
-    const spirits=front=>{for(const t of patrol.filter(t=>front?t.y>=y:t.y<y).sort((a,b)=>a.y-b.y))this.soldier(t.x,t.y,color,t.phase,clamp(s*.85,.35,1),.35,t.face);};
+    const population=count(n),patrol=this.patrol(n);
+    const spirits=front=>{for(const t of patrol.filter(t=>front?t.y>=y:t.y<y).sort((a,b)=>a.y-b.y)){
+      if(this.spiritSelection.get(n.id)?.has(t.index)){c.fillStyle='#d9f0bacc';c.beginPath();c.arc(t.x,t.y-5,7*s+2,0,Math.PI*2);c.fill();this.ring(t.x,t.y-5,7*s+2,'#2c8069',1.2);}
+      this.soldier(t.x,t.y,color,t.phase,clamp(s*.85,.35,1),.35,t.face);
+    }};
     spirits(false);if(tree){c.globalAlpha=.5+.5*hp;c.drawImage(tree,x-width/2,y-height+15*s,width,height);c.globalAlpha=1;}spirits(true);
     // Numeral remains separate from the canopy and gets a small paper backing.
     c.textAlign='center';c.textBaseline='middle';c.font=`${Math.max(15,19*s)}px ${brush}`;const numberY=y+9,number=String(population),nw=c.measureText(number).width+10;c.fillStyle='#f5f5e6ec';c.fillRect(x-nw/2,numberY-10,nw,20);c.fillStyle=n.owner<0?'#737e67':color;c.fillText(number,x,numberY);
@@ -63,7 +67,7 @@ export class Renderer {
   }
   orders(){
     const c=this.ctx,d=this.drag;if(!d)return;let total=0,reachable=0;const target=d.target!=null?this.game.nodes[d.target]:null,sources=d.sources||[d.source];
-    for(const id of sources){const source=this.game.nodes[id],A=this.screen(source),path=target?this.game.route(0,id,target.id):null,color=target&&!path?'#a3393155':'#205d59';const amount=Math.max(0,Math.min(count(source)-2,Math.floor(count(source)*d.ratio)));if(path){total+=amount;reachable++;}
+    for(const id of sources){const source=this.game.nodes[id],A=this.screen(source),path=target?this.game.route(0,id,target.id):null,color=target&&!path?'#a3393155':'#205d59';const amount=Math.max(0,Math.min(count(source)-2,d.amounts?.get(id) ?? Math.floor(count(source)*d.ratio)));if(path){total+=amount;reachable++;}
       c.setLineDash([7,4]);c.lineDashOffset=-performance.now()/60;if(path){this.line(path.map(id=>this.screen(this.game.nodes[id])),color,2.5);}else this.line([A,{x:d.x,y:d.y}],color,1.8);c.setLineDash([]);
     }
     if(target){const p=this.screen(target);this.ring(p.x,p.y,Math.max(27,33*this.scale),reachable?'#205d59':'#a33931',2);}
@@ -80,7 +84,7 @@ export class Renderer {
     this.game.nodes.forEach(n=>this.city(n,now));this.game.armies.forEach(a=>this.army(a,now));
     for(const g of this.game.ghosts){const p=this.screen(g);c.save();c.globalAlpha=g.owner===0?.45:.9;for(let i=0;i<8;i++)this.soldier(p.x+(i%4-1.5)*8,p.y+Math.floor(i/4)*9,FACTIONS[g.owner].color,now*.012+i,.9,4);c.restore();}
     this.orders();
-    if(this.selectionCircle){const {center:p,radius:r}=this.selectionCircle;c.save();c.fillStyle='#247b641a';c.beginPath();c.arc(p.x,p.y,r,0,Math.PI*2);c.fill();c.setLineDash([6,4]);this.ring(p.x,p.y,r,'#205d59',2);c.setLineDash([]);this.ring(p.x,p.y,3,'#205d59',1.5);c.font=`14px ${brush}`;c.fillStyle='#205d59';c.textAlign='center';c.fillText(`已选 ${this.group.size} 处`,p.x,Math.max(18,p.y-r-13));c.restore();}
+    if(this.selectionCircle){const {center:p,radius:r}=this.selectionCircle;c.save();c.fillStyle='#247b641a';c.beginPath();c.arc(p.x,p.y,r,0,Math.PI*2);c.fill();c.setLineDash([6,4]);this.ring(p.x,p.y,r,'#205d59',2);c.setLineDash([]);this.ring(p.x,p.y,3,'#205d59',1.5);c.font=`14px ${brush}`;c.fillStyle='#205d59';c.textAlign='center';c.fillText(`已选 ${[...this.spiritSelection.values()].reduce((sum,ids)=>sum+ids.size,0)} 灵${this.selectionCircle.locked?' · 圈内拖向目标':''}`,p.x,Math.max(18,p.y-r-13));c.restore();}
     for(const e of this.game.events){if(e.id<=this.lastEvent)continue;this.lastEvent=e.id;if(['clash','roadClash','capture','card','break','upgrade','ghostGone','send'].includes(e.type)){const p=e.node!=null?this.game.nodes[e.node]:e.source!=null?this.game.nodes[e.source]:e.point||e;if(p.x!=null)this.effects.push({type:e.type,x:p.x,y:p.y,owner:e.owner,born:now,key:e.key,amount:e.amount});}}
     this.effects=this.effects.filter(e=>now-e.born<900);
     for(const e of this.effects){const p=this.screen(e),age=(now-e.born)/900,color=FACTIONS[e.owner]?.color||'#333a30';c.save();c.globalAlpha=1-age;c.fillStyle=color;c.strokeStyle=color;

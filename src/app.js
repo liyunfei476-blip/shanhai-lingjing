@@ -1,6 +1,6 @@
 import { Game, LEVELS, FACTIONS, CARDS, count, clamp } from './engine.js';
 import { Renderer } from './render.js';
-import { circleNodes, groupOrder } from './gestures.js';
+import { circleSpirits, groupOrder } from './gestures.js';
 
 const $ = id => document.getElementById(id);
 const dialog = $('main-dialog');
@@ -8,7 +8,9 @@ let saved = {}; try { saved = JSON.parse(localStorage.getItem('mojing.preference
 const preferences = { sound: true, music: false, vibration: true, reduced: matchMedia('(prefers-reduced-motion: reduce)').matches, ...saved };
 let options = { size: 'small', opponents: 2, difficulty: 'standard', seed: 73129 }, game = new Game(options), renderer = new Renderer($('map-canvas'),game);
 let running = false, paused = false, selection = game.owned(0)[0].id, ratio = .5, selectedCard = null, halfMode = false, lastUI = 0, processedEvent = 0, speed = 1, modalType = '', uiHandKey = '', toastTimer, feed = [], actionPointer = null;
-let selectedGroup = new Set();
+let selectedGroup = new Set(), spiritSelection = new Map();
+function clearGroup(){selectedGroup.clear();spiritSelection.clear();renderer.selectionCircle=null;}
+function selectedAmounts(){return new Map([...spiritSelection].map(([id,ids])=>[id,Math.min(ids.size,Math.max(0,count(game.nodes[id])-2))]));}
 let audioContext, nextMusic = 0;
 const pointers = new Map(); let pinch = null;
 const fmtTime = t => `${String(Math.floor(t/60)).padStart(2,'0')}:${String(Math.floor(t%60)).padStart(2,'0')}`;
@@ -30,12 +32,12 @@ function showSetup(){
 function startGame(watch=false,sameSeed=false){
   if(!sameSeed)options.seed=Math.floor(Math.random()*900000)+100000;
   game=new Game({...options,autoPlayer:watch});renderer.game=game;renderer.fit();renderer.resize();renderer.effects=[];renderer.lastEvent=0;
-  selection=game.owned(0)[0].id;selectedGroup=new Set();renderer.group=selectedGroup;renderer.selected=selection;selectedCard=null;halfMode=false;speed=1;ratio=.5;$('ratio').value=50;
+  selection=game.owned(0)[0].id;clearGroup();selectedGroup=new Set();renderer.group=selectedGroup;renderer.spiritSelection=spiritSelection;renderer.selected=selection;selectedCard=null;halfMode=false;speed=1;ratio=.5;$('ratio').value=50;
   processedEvent=0;feed=[];uiHandKey='';running=true;closeModal();wakeAudio();nextMusic=0;rebuildNodeControls();updateUI();
   toast(watch?'灵主对弈中 · 可在设置返回':'从己方古树直接划向目标 · 空白拖圆可多选');
 }
 function showHelp(fromSetup=false){
-  openModal('help',`<p class="dialog-overline">御 灵 入 门</p><h2 class="dialog-title">入山须知</h2><ul class="help-list"><li><b>一</b><strong>拉圆御灵</strong><br>手指从青色古树直接划向目标，松手发灵，无需长按。在空白处按下，以按下点为圆心向外拖出选灵圈；拖远放大、拖近缩小，松手选定。再从选中据点划向目标，或直接点击目标，即可齐发。松在空白处不会发灵。</li><li><b>二</b><strong>养树与护根</strong><br>古树每三秒孕灵，满额暂停。消耗驻灵升级，最高三级。耐久归零直接破根；出灵始终保留两名驻灵。</li><li><b>三</b><strong>因势用计</strong><br>占树或每消灭20名敌灵得一张灵符，最多五张。点牌后选目标，长按牌查看详情。同类灵符共享冷却。</li><li><b>四</b><strong>万木归流</strong><br>占领全部古树才算获胜，失去全部古树立即败北。灵主各自为战，也会彼此攻伐。</li></ul><p class="fineprint">三棵己方古树经灵脉相连，内部行速提升35%，脱战生机恢复提升50%；断开即失效。<br>双指可缩放和移动地图；单指空白拉圆选灵；点击“全图”复位。<br>电脑版可用鼠标拖拽和滚轮缩放。打开说明或设置时全局暂停。</p><div class="help-cards">${Object.values(CARDS).map(c=>`<div class="help-card"><b>${c.name}</b><span>${c.desc}<br>同类冷却 ${c.cd} 秒</span></div>`).join('')}</div><button class="primary-button" id="help-close">${fromSetup?'返回择局':'心中有数'}</button>`);
+  openModal('help',`<p class="dialog-overline">御 灵 入 门</p><h2 class="dialog-title">入山须知</h2><ul class="help-list"><li><b>一</b><strong>拉圆御灵</strong><br>手指从青色古树直接划向目标，松手发灵，无需长按。在空白处按下，以按下点为圆心向外拖出选灵圈；拖远放大、拖近缩小，松手选定。松手后圆圈保留，从圈内任意位置拖向目标即可派出被圈中的墨灵，也可直接点击目标。圈到多少派多少，始终保留两名驻灵。拖动圈边可调整大小。松在空白处不会发灵。</li><li><b>二</b><strong>养树与护根</strong><br>古树每三秒孕灵，满额暂停。消耗驻灵升级，最高三级。耐久归零直接破根；出灵始终保留两名驻灵。</li><li><b>三</b><strong>因势用计</strong><br>占树或每消灭20名敌灵得一张灵符，最多五张。点牌后选目标，长按牌查看详情。同类灵符共享冷却。</li><li><b>四</b><strong>万木归流</strong><br>占领全部古树才算获胜，失去全部古树立即败北。灵主各自为战，也会彼此攻伐。</li></ul><p class="fineprint">三棵己方古树经灵脉相连，内部行速提升35%，脱战生机恢复提升50%；断开即失效。<br>双指可缩放和移动地图；单指空白拉圆选灵；点击“全图”复位。<br>电脑版可用鼠标拖拽和滚轮缩放。打开说明或设置时全局暂停。</p><div class="help-cards">${Object.values(CARDS).map(c=>`<div class="help-card"><b>${c.name}</b><span>${c.desc}<br>同类冷却 ${c.cd} 秒</span></div>`).join('')}</div><button class="primary-button" id="help-close">${fromSetup?'返回择局':'心中有数'}</button>`);
   $('help-close').onclick=()=>fromSetup?showSetup():closeModal();
 }
 function showSettings(){
@@ -55,17 +57,17 @@ function showResult(){
   $('result-retry').onclick=()=>startGame(game.options.autoPlayer,true);$('result-new').onclick=showSetup;
 }
 function showCardInfo(key){const card=CARDS[key];openModal('cardinfo',`<p class="dialog-overline">灵 符 释 义</p><div class="card-detail-icon">${card.icon}</div><h2 class="dialog-title">${card.name}</h2><p class="card-detail-copy">${card.desc}</p><p class="fineprint">同类冷却 ${card.cd} 秒 · 使用后消耗一张<br>长按查看不会消耗卡牌</p><button class="primary-button" id="card-info-close">收卷</button>`);$('card-info-close').onclick=closeModal;}
-function cancelTarget(){selectedGroup.clear();selectedCard=null;halfMode=false;renderer.card=null;renderer.drag=null;updateUI();}
-function pickCard(key){if(!running||paused||game.options.autoPlayer)return;const f=game.factions[0];if((f.cooldowns[key]||0)>game.time){toast(`同类灵符冷却中，还需${Math.ceil(f.cooldowns[key]-game.time)}秒`);return;}selectedGroup.clear();halfMode=false;selectedCard=selectedCard===key?null:key;renderer.card=selectedCard;updateUI();}
+function cancelTarget(){clearGroup();selectedCard=null;halfMode=false;renderer.card=null;renderer.drag=null;updateUI();}
+function pickCard(key){if(!running||paused||game.options.autoPlayer)return;const f=game.factions[0];if((f.cooldowns[key]||0)>game.time){toast(`同类灵符冷却中，还需${Math.ceil(f.cooldowns[key]-game.time)}秒`);return;}clearGroup();halfMode=false;selectedCard=selectedCard===key?null:key;renderer.card=selectedCard;updateUI();}
 function applyCard(target){if(!selectedCard)return;const key=selectedCard,result=game.playCard(0,key,target);if(result.ok){cancelTarget();sound('card');vibrate();toast(`${CARDS[key].name} · 已施放`);updateUI();}else toast(result.reason);}
 function selectedNode(n){selection=n.id;renderer.selected=n.id;updateUI();}
-function sendGroup(target,ids=[...selectedGroup],fraction=ratio){const result=groupOrder(game,ids,target,fraction);if(result.sent){toast(`${result.sent}树齐发 · ${result.amount}灵${result.failures.length?' · 部分古树不可达':''}`);sound('send');vibrate();selectedGroup.clear();renderer.group=selectedGroup;}else toast(result.failures[0]||'请选择另一座古树');updateUI();return result;}
+function sendGroup(target,ids=[...selectedGroup],fraction=ratio){const result=groupOrder(game,ids,target,fraction,spiritSelection.size?selectedAmounts():null);if(result.sent){toast(`${result.sent}树齐发 · ${result.amount}灵${result.failures.length?' · 部分古树不可达':''}`);sound('send');vibrate();clearGroup();renderer.group=selectedGroup;}else toast(result.failures[0]||'请选择另一座古树');updateUI();return result;}
 function handleNode(n){
   if(!running||paused)return;
   if(selectedCard){if(CARDS[selectedCard].target==='road'){toast('请点击灵脉上的落点');return;}if(CARDS[selectedCard].target==='global'){toast('点击下方“施放御风”确认');return;}applyCard(n.id);return;}
   if(halfMode){const result=game.send(0,selection,n.id,.5);if(result.ok){toast(`已派出${result.amount}灵`);cancelTarget();sound('send');vibrate();}else toast(result.reason);updateUI();return;}
   if(selectedGroup.size&& !selectedGroup.has(n.id)){sendGroup(n.id);return;}
-  selectedGroup.clear();selectedNode(n);
+  clearGroup();selectedNode(n);
 }
 function rebuildNodeControls(){
   $('node-controls').innerHTML=game.nodes.map(n=>`<button class="node-access" id="node-${n.id}" aria-label="${n.name}树">${n.name}</button>`).join('');
@@ -83,7 +85,7 @@ function updateUI(){
     $('upgrade-button').innerHTML=`<span>${n.level===3?'神木已成':n.upgrade?'蕴养中':'进阶 ↑'}</span><small>${n.level===3?'已达最高级':n.upgrade?`${Math.ceil(n.upgrade.remaining)}秒${n.attackers.length?' · 暂停':''}`:`消耗 ${level.cost} 灵`}</small>`;
     $('half-button').disabled=n.owner!==0||game.options.autoPlayer||count(n)<=2;$('ratio').disabled=n.owner!==0||game.options.autoPlayer;
   }
-  $('ratio-label').textContent=Math.round(ratio*100)+'%';$('hand-count').textContent=`${f.hand.length} / 5`;
+  $('ratio').disabled=spiritSelection.size>0;$('ratio-label').textContent=spiritSelection.size?[...selectedAmounts().values()].reduce((a,b)=>a+b,0)+'灵':Math.round(ratio*100)+'%';$('hand-count').textContent=`${f.hand.length} / 5`;
   const handKey=f.hand.join(',')+'|'+selectedCard;
   if(handKey!==uiHandKey){uiHandKey=handKey;$('cards').innerHTML=Array.from({length:5},(_,i)=>{const key=f.hand[i];if(!key)return'<div class="card empty" aria-label="空灵符位">待悟</div>';const c=CARDS[key];return`<button class="card ${selectedCard===key?'selected':''}" data-card="${key}" aria-label="${c.name}：${c.desc}" aria-pressed="${selectedCard===key}"><span class="card-name">${c.name}</span><span class="rune-icon" aria-hidden="true">${c.icon}</span><small>${c.label}</small><span class="cooldown-label" hidden></span></button>`;}).join('');
     $('cards').querySelectorAll('button').forEach(b=>{let timer,long=false;b.onpointerdown=()=>{long=false;timer=setTimeout(()=>{long=true;showCardInfo(b.dataset.card);},500);};b.onpointerup=()=>clearTimeout(timer);b.onpointercancel=()=>clearTimeout(timer);b.onpointerleave=()=>clearTimeout(timer);b.onclick=()=>{if(!long)pickCard(b.dataset.card);};b.oncontextmenu=e=>e.preventDefault();});
@@ -92,10 +94,16 @@ function updateUI(){
   let hint='';if(selectedCard){const card=CARDS[selectedCard];hint=card.target==='own'?`${card.name} · 选择己方古树`:card.target==='enemy'?`${card.name} · 选择敌方古树`:card.target==='road'?'幻身 · 选择灵脉落点':'御风 · 全军行速提升8秒';}else if(halfMode)hint='半数出灵 · 请选择目标古树';
   $('target-hint').hidden=!hint;$('target-hint').querySelector('span').textContent=hint;
   let cast=$('cast-global');if(selectedCard==='haste'){if(!cast){cast=document.createElement('button');cast.id='cast-global';cast.textContent='施放御风';cast.onclick=()=>applyCard(null);$('target-hint').insertBefore(cast,$('cancel-target'));}}else if(cast)cast.remove();
-  for(const id of selectedGroup)if(game.nodes[id].owner!==0)selectedGroup.delete(id);
+  for(const id of selectedGroup){
+    const node=game.nodes[id];
+    if(node.owner!==0){selectedGroup.delete(id);spiritSelection.delete(id);continue;}
+    const slots=spiritSelection.get(id);
+    if(slots){for(const index of slots)if(index>=count(node))slots.delete(index);while(slots.size>Math.max(0,count(node)-2))slots.delete([...slots].at(-1));if(!slots.size){spiritSelection.delete(id);selectedGroup.delete(id);}}
+  }
+  if(!selectedGroup.size&&renderer.selectionCircle?.locked)renderer.selectionCircle=null;
   $('resonance-status').textContent=game.owned(0).some(n=>game.resonant(n.id))?'灵脉共鸣 · 行速↑':'三树相连 · 唤醒共鸣';
-  $('group-count').textContent=selectedGroup.size?`已选 ${selectedGroup.size} 树 · 点目标齐发`:'';
-  $('gesture-tip').hidden=!!hint;$('gesture-tip').textContent=game.options.autoPlayer?'灵主对弈 · 观战中':selectedGroup.size?'圈选完成 · 拖向或点击目标':renderer.zoom>1.1?'双指移动视野 · 单指拉圆选灵':renderer.scale<.5?'双指放大古林 · 空白拉圆选灵':'直接划动出灵 · 空白拉圆多选';
+  $('group-count').textContent=selectedGroup.size?spiritSelection.size?`已选 ${[...selectedAmounts().values()].reduce((a,b)=>a+b,0)} 灵 · 圈内拖动出发`:`已选 ${selectedGroup.size} 树 · 点目标齐发`:'';
+  $('gesture-tip').hidden=!!hint;$('gesture-tip').textContent=game.options.autoPlayer?'灵主对弈 · 观战中':selectedGroup.size?'圈内任意位置拖向目标 · 圈到多少派多少':renderer.zoom>1.1?'双指移动视野 · 单指拉圆选灵':renderer.scale<.5?'双指放大古林 · 空白拉圆选灵':'直接划动出灵 · 空白拉圆多选';
   $('speed-button').hidden=game.factions.slice(1).some(x=>x.alive)&&!game.options.autoPlayer;$('speed-button').textContent='×'+speed;
   for(const node of game.nodes){const b=$('node-'+node.id);if(!b)continue;const p=renderer.screen(node);b.style.left=p.x+'px';b.style.top=p.y+'px';b.setAttribute('aria-label',`${node.name}，${node.owner<0?'中立':FACTIONS[node.owner].name}，${count(node)}灵，等级${node.level}，耐久${Math.ceil(node.hp)}`);}
 }
@@ -111,12 +119,15 @@ function eventUpdates(){
   feed=feed.filter(e=>game.time-e.time<5).slice(-2);$('event-feed').innerHTML=feed.map(e=>`<span>${e.text}</span>`).join('');
 }
 function localPoint(e){const r=$('map-canvas').getBoundingClientRect();return{x:e.clientX-r.left,y:e.clientY-r.top};}
-function cancelGesture(){actionPointer=null;renderer.drag=null;renderer.selectionCircle=null;pointers.clear();pinch=null;}
+function cancelGesture(){actionPointer=null;renderer.drag=null;clearGroup();pointers.clear();pinch=null;}
 const canvas=$('map-canvas');
 canvas.addEventListener('pointerdown',e=>{
   if(!running||paused)return;wakeAudio();const p=localPoint(e);pointers.set(e.pointerId,p);canvas.setPointerCapture(e.pointerId);
-  if(pointers.size===2){actionPointer=null;renderer.drag=null;renderer.selectionCircle=null;const ps=[...pointers.values()];pinch={distance:Math.max(1,Math.hypot(ps[0].x-ps[1].x,ps[0].y-ps[1].y)),zoom:renderer.zoom,center:{x:(ps[0].x+ps[1].x)/2,y:(ps[0].y+ps[1].y)/2},pan:{...renderer.pan}};return;}
-  const n=renderer.nodeAt(p);actionPointer={id:e.pointerId,start:p,last:p,node:n?.id,mode:'pending'};
+  if(pointers.size===2){actionPointer=null;renderer.drag=null;clearGroup();const ps=[...pointers.values()];pinch={distance:Math.max(1,Math.hypot(ps[0].x-ps[1].x,ps[0].y-ps[1].y)),zoom:renderer.zoom,center:{x:(ps[0].x+ps[1].x)/2,y:(ps[0].y+ps[1].y)/2},pan:{...renderer.pan}};return;}
+  const n=renderer.nodeAt(p),circle=renderer.selectionCircle;
+  const distance=circle?Math.hypot(p.x-circle.center.x,p.y-circle.center.y):Infinity;
+  const resize=!!circle?.locked&&Math.abs(distance-circle.radius)<8&&distance>16;
+  actionPointer={id:e.pointerId,start:p,last:p,node:n?.id,mode:'pending',fromCircle:!!circle?.locked&&distance<=circle.radius+8,resize,circleCenter:circle?.center};
 });
 canvas.addEventListener('pointermove',e=>{
   if(!pointers.has(e.pointerId))return;const p=localPoint(e);pointers.set(e.pointerId,p);
@@ -124,35 +135,40 @@ canvas.addEventListener('pointermove',e=>{
   const a=actionPointer;if(!a||a.id!==e.pointerId||selectedCard||halfMode||game.options.autoPlayer)return;
   const dist=Math.hypot(p.x-a.start.x,p.y-a.start.y),n=game.nodes[a.node];
   if(a.mode==='pending'&&dist>5){
-    if(n?.owner===0){a.mode='dispatch';if(!selectedGroup.has(n.id))selectedGroup=new Set([n.id]);renderer.group=selectedGroup;selectedNode(n);}
-    else if(!n){a.mode='circle';selectedGroup.clear();}
+    if(a.resize){a.mode='circle';a.start=a.circleCenter;}
+    else if(a.fromCircle&&selectedGroup.size){a.mode='dispatch';}
+    else if(n?.owner===0){a.mode='dispatch';if(!selectedGroup.has(n.id)){clearGroup();selectedGroup.add(n.id);}renderer.group=selectedGroup;selectedNode(n);}
+    else if(!n){a.mode='circle';clearGroup();}
   }
   if(a.mode==='circle'){
-    renderer.selectionCircle={center:a.start,radius:dist};
-    selectedGroup=new Set(circleNodes(game.nodes,a.start,dist,n=>renderer.screen(n)));renderer.group=selectedGroup;
+    const radius=Math.hypot(p.x-a.start.x,p.y-a.start.y);
+    renderer.selectionCircle={center:a.start,radius,locked:false};
+    spiritSelection=circleSpirits(game.nodes,a.start,radius,n=>renderer.patrol(n));
+    selectedGroup=new Set(spiritSelection.keys());renderer.group=selectedGroup;renderer.spiritSelection=spiritSelection;
     updateUI();
   }
-  if(a.mode==='dispatch'){const target=renderer.nodeAt(p);renderer.drag={sources:[...selectedGroup],source:a.node,x:p.x,y:p.y,target:target&&!selectedGroup.has(target.id)?target.id:null,ratio};}
+  if(a.mode==='dispatch'){const target=renderer.nodeAt(p);renderer.drag={sources:[...selectedGroup],source:a.node,x:p.x,y:p.y,target:target&&!selectedGroup.has(target.id)?target.id:null,ratio,amounts:spiritSelection.size?selectedAmounts():null};}
   a.last=p;
 });
 canvas.addEventListener('pointerup',e=>{
   pointers.delete(e.pointerId);if(pinch){if(!pointers.size)pinch=null;actionPointer=null;return;}
   const a=actionPointer;actionPointer=null;if(!a||paused)return;const p=localPoint(e),target=renderer.nodeAt(p);
   if(a.mode==='dispatch'){if(target&&!selectedGroup.has(target.id))sendGroup(target.id);renderer.drag=null;updateUI();return;}
-  if(a.mode==='circle'){renderer.selectionCircle=null;if(selectedGroup.size){selectedNode(game.nodes[[...selectedGroup][0]]);toast(`已圈选 ${selectedGroup.size} 棵树 · 拖向或点选目标`);}updateUI();return;}
+  if(a.mode==='circle'){if(selectedGroup.size){renderer.selectionCircle.locked=true;selectedNode(game.nodes[[...selectedGroup][0]]);toast('圈内任意位置拖向目标 · 圈到多少派多少');}else renderer.selectionCircle=null;updateUI();return;}
   if(selectedCard==='decoy'){const road=renderer.roadAt(p);if(road)applyCard(road);else toast('请点击墨色灵脉');return;}
-  if(target)handleNode(target);else if(selectedCard||halfMode)cancelTarget();else{selectedGroup.clear();updateUI();}
+  if(a.fromCircle&&(!target||selectedGroup.has(target.id)))return;
+  if(target)handleNode(target);else if(selectedCard||halfMode)cancelTarget();else{clearGroup();updateUI();}
 });
 canvas.addEventListener('pointercancel',cancelGesture);canvas.addEventListener('lostpointercapture',e=>{if(actionPointer?.id===e.pointerId)cancelGesture();});canvas.addEventListener('contextmenu',e=>e.preventDefault());
-canvas.addEventListener('wheel',e=>{if(!running||paused)return;e.preventDefault();renderer.zoom=clamp(renderer.zoom*(e.deltaY<0?1.1:.91),1,2.5);if(renderer.zoom===1)renderer.pan={x:0,y:0};updateUI();},{passive:false});
+canvas.addEventListener('wheel',e=>{if(!running||paused)return;e.preventDefault();clearGroup();renderer.zoom=clamp(renderer.zoom*(e.deltaY<0?1.1:.91),1,2.5);if(renderer.zoom===1)renderer.pan={x:0,y:0};updateUI();},{passive:false});
 $('ratio').oninput=e=>{ratio=Number(e.target.value)/100;$('ratio-label').textContent=e.target.value+'%';};
 $('upgrade-button').onclick=()=>{if(game.options.autoPlayer)return;const result=game.upgrade(0,selection);if(result.ok){toast('开始蕴养 · 暂停孕灵');sound('upgrade');}else toast(result.reason);updateUI();};
 $('half-button').onclick=()=>{cancelTarget();halfMode=true;ratio=.5;$('ratio').value=50;updateUI();};
-$('cancel-target').onclick=cancelTarget;$('fit-button').onclick=()=>{renderer.fit();updateUI();};$('speed-button').onclick=()=>{speed=speed===1?2:1;updateUI();};
+$('cancel-target').onclick=cancelTarget;$('fit-button').onclick=()=>{clearGroup();renderer.fit();updateUI();};$('speed-button').onclick=()=>{speed=speed===1?2:1;updateUI();};
 $('help-button').onclick=()=>showHelp(!running);$('settings-button').onclick=showSettings;$('exit-button').onclick=showExit;
 window.addEventListener('keydown',e=>{if(e.key==='Escape'&&!dialog.open)cancelTarget();if(e.key===' '&&!dialog.open&&running&&e.target===document.body){e.preventDefault();showSettings();}});
 document.addEventListener('visibilitychange',()=>{if(document.hidden&&running&&!dialog.open&&game.status==='playing')showSettings();lastFrame=performance.now();accumulator=0;});
-new ResizeObserver(()=>{renderer.resize();updateUI();}).observe($('battlefield'));
+new ResizeObserver(()=>{cancelGesture();renderer.resize();updateUI();}).observe($('battlefield'));
 let lastFrame=performance.now(),accumulator=0;
 function frame(now){const dt=Math.min((now-lastFrame)/1000,.25);lastFrame=now;
   if(running&&!paused&&game.status==='playing'){accumulator+=dt*speed;let loops=0;while(accumulator>=.05&&loops++<12){game.step(.05);accumulator-=.05;}eventUpdates();if(game.status!=='playing')showResult();
