@@ -9,7 +9,7 @@ const preferences = { sound: true, music: false, vibration: true, reduced: match
 let options = { size: 'small', opponents: 2, difficulty: 'standard', seed: 73129 }, game = new Game(options), renderer = new Renderer($('map-canvas'),game);
 let running = false, paused = false, selection = game.owned(0)[0].id, ratio = .5, selectedCard = null, halfMode = false, lastUI = 0, processedEvent = 0, speed = 1, modalType = '', uiHandKey = '', toastTimer, feed = [], actionPointer = null;
 let selectedGroup = new Set(), spiritSelection = new Map();
-function clearGroup(){selectedGroup.clear();spiritSelection.clear();renderer.selectionCircle=null;}
+function clearGroup(){selectedGroup.clear();spiritSelection.clear();renderer.selectionCircle=null;renderer.selectedArea=null;}
 function selectedAmounts(){return new Map([...spiritSelection].map(([id,ids])=>[id,Math.min(ids.size,Math.max(0,count(game.nodes[id])-2))]));}
 let audioContext, nextMusic = 0;
 const pointers = new Map(); let pinch = null;
@@ -37,7 +37,7 @@ function startGame(watch=false,sameSeed=false){
   toast(watch?'灵主对弈中 · 可在设置返回':'从己方古树直接划向目标 · 空白拖圆可多选');
 }
 function showHelp(fromSetup=false){
-  openModal('help',`<p class="dialog-overline">御 灵 入 门</p><h2 class="dialog-title">入山须知</h2><ul class="help-list"><li><b>一</b><strong>拉圆御灵</strong><br>手指从青色古树直接划向目标，松手发灵，无需长按。在空白处按下，以按下点为圆心向外拖出选灵圈；拖远放大、拖近缩小，松手选定。松手后圆圈保留，从圈内任意位置拖向目标即可派出被圈中的墨灵，也可直接点击目标。圈到多少派多少，始终保留两名驻灵。拖动圈边可调整大小。松在空白处不会发灵。</li><li><b>二</b><strong>养树与护根</strong><br>古树每三秒孕灵，满额暂停。消耗驻灵升级，最高三级。耐久归零直接破根；出灵始终保留两名驻灵。</li><li><b>三</b><strong>因势用计</strong><br>占树或每消灭20名敌灵得一张灵符，最多五张。点牌后选目标，长按牌查看详情。同类灵符共享冷却。</li><li><b>四</b><strong>万木归流</strong><br>占领全部古树才算获胜，失去全部古树立即败北。灵主各自为战，也会彼此攻伐。</li></ul><p class="fineprint">三棵己方古树经灵脉相连，内部行速提升35%，脱战生机恢复提升50%；断开即失效。<br>双指可缩放和移动地图；单指空白拉圆选灵；点击“全图”复位。<br>电脑版可用鼠标拖拽和滚轮缩放。打开说明或设置时全局暂停。</p><div class="help-cards">${Object.values(CARDS).map(c=>`<div class="help-card"><b>${c.name}</b><span>${c.desc}<br>同类冷却 ${c.cd} 秒</span></div>`).join('')}</div><button class="primary-button" id="help-close">${fromSetup?'返回择局':'心中有数'}</button>`);
+  openModal('help',`<p class="dialog-overline">御 灵 入 门</p><h2 class="dialog-title">入山须知</h2><ul class="help-list"><li><b>一</b><strong>拉圆御灵</strong><br>手指从青色古树直接划向目标，松手发灵，无需长按。在空白处按下，以按下点为圆心向外拖出选灵圈；拖远放大、拖近缩小，松手选定。松手立即收起圆圈，墨灵保留高亮，从刚才圈选区域或高亮墨灵处拖向目标即可派出被圈中的墨灵，也可直接点击目标。圈到多少派多少，始终保留两名驻灵。需要重选时，从区域外空白处重新拉圆。松在空白处不会发灵。</li><li><b>二</b><strong>养树与护根</strong><br>古树每三秒孕灵，满额暂停。消耗驻灵升级，最高三级。耐久归零直接破根；出灵始终保留两名驻灵。</li><li><b>三</b><strong>因势用计</strong><br>占树或每消灭20名敌灵得一张灵符，最多五张。点牌后选目标，长按牌查看详情。同类灵符共享冷却。</li><li><b>四</b><strong>万木归流</strong><br>占领全部古树才算获胜，失去全部古树立即败北。灵主各自为战，也会彼此攻伐。</li></ul><p class="fineprint">三棵己方古树经灵脉相连，内部行速提升35%，脱战生机恢复提升50%；断开即失效。<br>双指可缩放和移动地图；单指空白拉圆选灵；点击“全图”复位。<br>电脑版可用鼠标拖拽和滚轮缩放。打开说明或设置时全局暂停。</p><div class="help-cards">${Object.values(CARDS).map(c=>`<div class="help-card"><b>${c.name}</b><span>${c.desc}<br>同类冷却 ${c.cd} 秒</span></div>`).join('')}</div><button class="primary-button" id="help-close">${fromSetup?'返回择局':'心中有数'}</button>`);
   $('help-close').onclick=()=>fromSetup?showSetup():closeModal();
 }
 function showSettings(){
@@ -100,10 +100,10 @@ function updateUI(){
     const slots=spiritSelection.get(id);
     if(slots){for(const index of slots)if(index>=count(node))slots.delete(index);while(slots.size>Math.max(0,count(node)-2))slots.delete([...slots].at(-1));if(!slots.size){spiritSelection.delete(id);selectedGroup.delete(id);}}
   }
-  if(!selectedGroup.size&&renderer.selectionCircle?.locked)renderer.selectionCircle=null;
+  if(!selectedGroup.size)renderer.selectedArea=null;
   $('resonance-status').textContent=game.owned(0).some(n=>game.resonant(n.id))?'灵脉共鸣 · 行速↑':'三树相连 · 唤醒共鸣';
-  $('group-count').textContent=selectedGroup.size?spiritSelection.size?`已选 ${[...selectedAmounts().values()].reduce((a,b)=>a+b,0)} 灵 · 圈内拖动出发`:`已选 ${selectedGroup.size} 树 · 点目标齐发`:'';
-  $('gesture-tip').hidden=!!hint;$('gesture-tip').textContent=game.options.autoPlayer?'灵主对弈 · 观战中':selectedGroup.size?'圈内任意位置拖向目标 · 圈到多少派多少':renderer.zoom>1.1?'双指移动视野 · 单指拉圆选灵':renderer.scale<.5?'双指放大古林 · 空白拉圆选灵':'直接划动出灵 · 空白拉圆多选';
+  $('group-count').textContent=selectedGroup.size?spiritSelection.size?`已选 ${[...selectedAmounts().values()].reduce((a,b)=>a+b,0)} 灵 · 拖向目标出发`:`已选 ${selectedGroup.size} 树 · 点目标齐发`:'';
+  $('gesture-tip').hidden=!!hint;$('gesture-tip').textContent=game.options.autoPlayer?'灵主对弈 · 观战中':selectedGroup.size?'拖动高亮墨灵向目标 · 圈到多少派多少':renderer.zoom>1.1?'双指移动视野 · 单指拉圆选灵':renderer.scale<.5?'双指放大古林 · 空白拉圆选灵':'直接划动出灵 · 空白拉圆多选';
   $('speed-button').hidden=game.factions.slice(1).some(x=>x.alive)&&!game.options.autoPlayer;$('speed-button').textContent='×'+speed;
   for(const node of game.nodes){const b=$('node-'+node.id);if(!b)continue;const p=renderer.screen(node);b.style.left=p.x+'px';b.style.top=p.y+'px';b.setAttribute('aria-label',`${node.name}，${node.owner<0?'中立':FACTIONS[node.owner].name}，${count(node)}灵，等级${node.level}，耐久${Math.ceil(node.hp)}`);}
 }
@@ -124,10 +124,10 @@ const canvas=$('map-canvas');
 canvas.addEventListener('pointerdown',e=>{
   if(!running||paused)return;wakeAudio();const p=localPoint(e);pointers.set(e.pointerId,p);canvas.setPointerCapture(e.pointerId);
   if(pointers.size===2){actionPointer=null;renderer.drag=null;clearGroup();const ps=[...pointers.values()];pinch={distance:Math.max(1,Math.hypot(ps[0].x-ps[1].x,ps[0].y-ps[1].y)),zoom:renderer.zoom,center:{x:(ps[0].x+ps[1].x)/2,y:(ps[0].y+ps[1].y)/2},pan:{...renderer.pan}};return;}
-  const n=renderer.nodeAt(p),circle=renderer.selectionCircle;
+  const n=renderer.nodeAt(p),circle=renderer.selectedArea;
   const distance=circle?Math.hypot(p.x-circle.center.x,p.y-circle.center.y):Infinity;
-  const resize=!!circle?.locked&&Math.abs(distance-circle.radius)<8&&distance>16;
-  actionPointer={id:e.pointerId,start:p,last:p,node:n?.id,mode:'pending',fromCircle:!!circle?.locked&&distance<=circle.radius+8,resize,circleCenter:circle?.center};
+  const onSpirit=[...spiritSelection].some(([id,slots])=>renderer.patrol(game.nodes[id]).some(t=>slots.has(t.index)&&Math.hypot(t.x-p.x,t.y-5-p.y)<18));
+  actionPointer={id:e.pointerId,start:p,last:p,node:n?.id,mode:'pending',fromCircle:!!circle&&distance<=circle.radius+8||onSpirit};
 });
 canvas.addEventListener('pointermove',e=>{
   if(!pointers.has(e.pointerId))return;const p=localPoint(e);pointers.set(e.pointerId,p);
@@ -135,8 +135,7 @@ canvas.addEventListener('pointermove',e=>{
   const a=actionPointer;if(!a||a.id!==e.pointerId||selectedCard||halfMode||game.options.autoPlayer)return;
   const dist=Math.hypot(p.x-a.start.x,p.y-a.start.y),n=game.nodes[a.node];
   if(a.mode==='pending'&&dist>5){
-    if(a.resize){a.mode='circle';a.start=a.circleCenter;}
-    else if(a.fromCircle&&selectedGroup.size){a.mode='dispatch';}
+    if(a.fromCircle&&selectedGroup.size){a.mode='dispatch';}
     else if(n?.owner===0){a.mode='dispatch';if(!selectedGroup.has(n.id)){clearGroup();selectedGroup.add(n.id);}renderer.group=selectedGroup;selectedNode(n);}
     else if(!n){a.mode='circle';clearGroup();}
   }
@@ -154,7 +153,7 @@ canvas.addEventListener('pointerup',e=>{
   pointers.delete(e.pointerId);if(pinch){if(!pointers.size)pinch=null;actionPointer=null;return;}
   const a=actionPointer;actionPointer=null;if(!a||paused)return;const p=localPoint(e),target=renderer.nodeAt(p);
   if(a.mode==='dispatch'){if(target&&!selectedGroup.has(target.id))sendGroup(target.id);renderer.drag=null;updateUI();return;}
-  if(a.mode==='circle'){if(selectedGroup.size){renderer.selectionCircle.locked=true;selectedNode(game.nodes[[...selectedGroup][0]]);toast('圈内任意位置拖向目标 · 圈到多少派多少');}else renderer.selectionCircle=null;updateUI();return;}
+  if(a.mode==='circle'){if(selectedGroup.size){renderer.selectedArea=renderer.selectionCircle;renderer.selectionCircle=null;selectedNode(game.nodes[[...selectedGroup][0]]);toast('拖动高亮墨灵向目标 · 圈到多少派多少');}else renderer.selectionCircle=null;updateUI();return;}
   if(selectedCard==='decoy'){const road=renderer.roadAt(p);if(road)applyCard(road);else toast('请点击墨色灵脉');return;}
   if(a.fromCircle&&(!target||selectedGroup.has(target.id)))return;
   if(target)handleNode(target);else if(selectedCard||halfMode)cancelTarget();else{clearGroup();updateUI();}
