@@ -4,7 +4,7 @@ const brush = 'MoBrush, "Kaiti SC", serif';
 const SPRITES={tree1:[70,90,490,540],tree2:[615,20,639,625],tree3:[0,632,747,622],spirit:[797,676,407,539]};
 export class Renderer {
   constructor(canvas,game){
-    this.canvas=canvas;this.ctx=canvas.getContext('2d');this.game=game;this.zoom=1;this.pan={x:0,y:0};this.selected=null;this.group=new Set();this.spiritSelection=new Map();this.selectionCircle=null;this.drag=null;this.card=null;this.effects=[];this.reduced=false;this.lastEvent=0;this.sprites=new Map();
+    this.canvas=canvas;this.ctx=canvas.getContext('2d');this.game=game;this.zoom=1;this.pan={x:0,y:0};this.selected=null;this.group=new Set();this.spiritSelection=new Map();this.armySelection=new Map();this.selectionCircle=null;this.drag=null;this.card=null;this.effects=[];this.reduced=false;this.lastEvent=0;this.sprites=new Map();
     this.backdrop=new Image();this.backdrop.src='./assets/spirit-forest.png';document.documentElement.style.setProperty('--forest-image',`url("${this.backdrop.src}")`);this.atlas=new Image();this.atlas.src='./assets/spirit-atlas.png';this.resize();
   }
   resize(){const r=this.canvas.getBoundingClientRect();this.w=r.width;this.h=r.height;this.dpr=Math.min(devicePixelRatio||1,2);this.canvas.width=this.w*this.dpr;this.canvas.height=this.h*this.dpr;this.baseScale=Math.max(.15,Math.min((this.w-8)/this.game.world.w,(this.h-52)/this.game.world.h));}
@@ -55,15 +55,16 @@ export class Renderer {
     if(n.attackers.length){n.attackers.forEach((a,j)=>{const angle=j*2.1-1.6;for(let i=0;i<Math.min(count(a),28);i++){const aa=angle+(i%7-3)*.18,d=r+14+Math.floor(i/7)*6;this.soldier(x+Math.cos(aa)*d,y+Math.sin(aa)*d,FACTIONS[a.owner].color,now*.017+i,s*.9,2,Math.cos(aa)>0?-1:1);}});c.fillStyle='#a65854';c.font=`12px ${brush}`;c.fillText('争灵',x,y-r-21);}
     c.restore();
   }
+  formation(a){
+    const p=this.screen(this.game.armyPoint(a)),s=clamp(this.scale,.6,1.2),from=a.free?a.from:this.game.nodes[a.path[a.index]],to=a.free?a.destination:this.game.nodes[a.path[a.index+1]],angle=Math.atan2(to.y-from.y,to.x-from.x);
+    return Array.from({length:count(a)},(_,index)=>{const row=Math.floor(index/4),col=index%4-1.5,dx=-row*7*s,dy=col*7*s;return {index,x:p.x+Math.cos(angle)*dx-Math.sin(angle)*dy,y:p.y+Math.sin(angle)*dx+Math.cos(angle)*dy,face:to.x>=from.x?1:-1};});
+  }
   army(a,now){
-    const c=this.ctx,p=this.screen(this.game.armyPoint(a)),color=FACTIONS[a.owner].color,s=clamp(this.scale,.6,1.2),num=count(a),haste=this.game.factions[a.owner].hasteUntil>this.game.time,from=this.game.nodes[a.path[a.index]],to=this.game.nodes[a.path[a.index+1]],angle=Math.atan2(to.y-from.y,to.x-from.x);
-    for(let i=num-1;i>=0;i--){
-      const row=Math.floor(i/4),col=i%4-1.5,dx=-row*7*s,dy=col*7*s;
-      let x=p.x+Math.cos(angle)*dx-Math.sin(angle)*dy,y=p.y+Math.sin(angle)*dx+Math.cos(angle)*dy;
-      if(a.progress<.16){const origin=this.screen(from),phase=i*2.399963+from.id*.73+this.game.time*.33,radius=(32+Math.floor(i/12)*8)*s,t=clamp(a.progress/.16,0,1);x=(origin.x+Math.cos(phase)*radius)*(1-t)+x*t;y=(origin.y+Math.sin(phase)*radius*.87)*(1-t)+y*t;}
-      this.soldier(x,y,color,now*.018+i,s,haste?11:2,to.x>=from.x?1:-1);
+    const c=this.ctx,color=FACTIONS[a.owner].color,s=clamp(this.scale,.6,1.2),haste=this.game.factions[a.owner].hasteUntil>this.game.time;
+    for(const t of this.formation(a).reverse()){
+      if(this.armySelection.get(a.id)?.has(t.index)){c.fillStyle='#d9f0bacc';c.beginPath();c.arc(t.x,t.y-5,7*s+2,0,Math.PI*2);c.fill();this.ring(t.x,t.y-5,7*s+2,'#2c8069',1.2);}
+      this.soldier(t.x,t.y,color,now*.018+t.index,s,a.progress===1?.35:haste?11:2,t.face);
     }
-    c.textAlign='center';c.font=`13px ${brush}`;c.fillStyle='#f5f3e8ef';c.fillRect(p.x-10,p.y-29,20,16);c.fillStyle=color;c.fillText(num,p.x,p.y-20);
   }
   orders(){
     const c=this.ctx,d=this.drag;if(!d)return;let total=0,reachable=0;const target=d.target!=null?this.game.nodes[d.target]:null,sources=d.sources||[d.source];
@@ -84,7 +85,8 @@ export class Renderer {
     this.game.nodes.forEach(n=>this.city(n,now));this.game.armies.forEach(a=>this.army(a,now));
     for(const g of this.game.ghosts){const p=this.screen(g);c.save();c.globalAlpha=g.owner===0?.45:.9;for(let i=0;i<8;i++)this.soldier(p.x+(i%4-1.5)*8,p.y+Math.floor(i/4)*9,FACTIONS[g.owner].color,now*.012+i,.9,4);c.restore();}
     this.orders();
-    if(this.selectionCircle){const {center:p,radius:r}=this.selectionCircle;c.save();c.fillStyle='#247b641a';c.beginPath();c.arc(p.x,p.y,r,0,Math.PI*2);c.fill();c.setLineDash([6,4]);this.ring(p.x,p.y,r,'#205d59',2);c.setLineDash([]);this.ring(p.x,p.y,3,'#205d59',1.5);c.font=`14px ${brush}`;c.fillStyle='#205d59';c.textAlign='center';c.fillText(`已选 ${[...this.spiritSelection.values()].reduce((sum,ids)=>sum+ids.size,0)} 灵${this.selectionCircle.locked?' · 圈内拖向目标':''}`,p.x,Math.max(18,p.y-r-13));c.restore();}
+    if(this.commandPoint&&now-this.commandPoint.born<700){const p=this.screen(this.commandPoint),t=(now-this.commandPoint.born)/700;c.save();c.globalAlpha=1-t;this.ring(p.x,p.y,8+20*t,'#205d59',2);c.restore();}
+    if(this.selectionCircle){const {center:p,radius:r}=this.selectionCircle;c.save();c.fillStyle='#247b641a';c.beginPath();c.arc(p.x,p.y,r,0,Math.PI*2);c.fill();this.ring(p.x,p.y,r,'#205d59',1.3);c.setLineDash([]);this.ring(p.x,p.y,3,'#205d59',1.5);c.font=`14px ${brush}`;c.fillStyle='#205d59';c.textAlign='center';c.fillText(`已选 ${[...this.spiritSelection.values(),...this.armySelection.values()].reduce((sum,ids)=>sum+ids.size,0)} 灵${this.selectionCircle.locked?' · 圈内拖向目标':''}`,p.x,Math.max(18,p.y-r-13));c.restore();}
     for(const e of this.game.events){if(e.id<=this.lastEvent)continue;this.lastEvent=e.id;if(['clash','roadClash','capture','card','break','upgrade','ghostGone','send'].includes(e.type)){const p=e.node!=null?this.game.nodes[e.node]:e.source!=null?this.game.nodes[e.source]:e.point||e;if(p.x!=null)this.effects.push({type:e.type,x:p.x,y:p.y,owner:e.owner,born:now,key:e.key,amount:e.amount});}}
     this.effects=this.effects.filter(e=>now-e.born<900);
     for(const e of this.effects){const p=this.screen(e),age=(now-e.born)/900,color=FACTIONS[e.owner]?.color||'#333a30';c.save();c.globalAlpha=1-age;c.fillStyle=color;c.strokeStyle=color;

@@ -70,6 +70,7 @@ export class Game {
   }
   route(owner, start, target) {
     if (start === target) return [start];
+    if (this.options.freeCommand) return this.nodes[start] && this.nodes[target] ? [start,target] : null;
     const dist = new Map([[start, 0]]), paths = new Map([[start, [start]]]), open = [start];
     while (open.length) {
       open.sort((a, b) => dist.get(a) - dist.get(b)); const a = open.shift();
@@ -91,11 +92,32 @@ export class Game {
     if (!path) return { ok: false, reason: '道路未通，须先占领中间古树' };
     const amount = Math.min(count(n) - 2, exact == null ? Math.floor(count(n) * ratio) : Math.floor(exact));
     if (amount < 1) return { ok: false, reason: '至少需要留下2名驻灵' };
+    if (this.options.freeCommand) return this.sendToPoint(owner,source,to,amount,target);
     n.power -= amount * 4;
     this.armies.push({ id: this.nextId++, owner, power: amount * 4, path, index: 0, progress: 0, source, target, ghostId: null });
     this.stats.orders++; this.factions[owner].lastAction = this.time;
     if (owner > 0 && to.owner > 0 && to.owner !== owner) this.stats.aiVsAi++;
     this.emit('send', { owner, source, target, amount }); return { ok: true, amount };
+  }
+  validPoint(point) { return point && Number.isFinite(point.x) && Number.isFinite(point.y) && point.x>=0 && point.y>=0 && point.x<=this.world.w && point.y<=this.world.h; }
+  sendToPoint(owner, source, point, exact, target = null) {
+    const n=this.nodes[source];
+    if(this.status!=='playing'||!this.factions[owner]?.alive||!n||n.owner!==owner||!this.validPoint(point)||!Number.isFinite(exact)||(target!==null&&(!this.nodes[target]||target===source)))return {ok:false,reason:'请选择有效落点'};
+    const amount=Math.min(Math.max(0,count(n)-2),Math.floor(exact));
+    if(amount<1)return {ok:false,reason:'至少需要留下2名驻灵'};
+    n.power-=amount*4;
+    this.armies.push({id:this.nextId++,owner,power:amount*4,free:true,from:{x:n.x,y:n.y},destination:{x:point.x,y:point.y},progress:0,source,target,ghostId:null});
+    this.stats.orders++;this.factions[owner].lastAction=this.time;
+    if(owner>0&&this.nodes[target]?.owner>0&&this.nodes[target].owner!==owner)this.stats.aiVsAi++;
+    this.emit('send',{owner,source,target,amount});return {ok:true,amount};
+  }
+  redirect(owner,id,point,exact,target=null) {
+    const a=this.armies.find(a=>a.id===id);
+    if(this.status!=='playing'||!this.factions[owner]?.alive||!a||a.owner!==owner||!this.validPoint(point)||!Number.isFinite(exact)||(target!==null&&!this.nodes[target]))return {ok:false,reason:'墨灵已离开选区'};
+    const amount=Math.min(count(a),Math.floor(exact));if(amount<1)return {ok:false,reason:'未选中墨灵'};
+    const power=Math.min(a.power,amount*4),from=this.armyPoint(a);a.power-=power;
+    this.armies.push({id:this.nextId++,owner,power,free:true,from,destination:{x:point.x,y:point.y},progress:0,source:a.source,target,ghostId:null});
+    this.armies=this.armies.filter(a=>a.power>0);this.stats.orders++;return {ok:true,amount};
   }
   upgrade(owner, id) {
     const n = this.nodes[id];
@@ -172,8 +194,9 @@ export class Game {
     this.emit('capture', { node: n.id, owner: n.owner, previous });
   }
   arrive(army) {
-    const n = this.nodes[army.path[army.index + 1]];
-    if (n.owner === army.owner && army.index + 2 < army.path.length) { army.index++; army.progress = 0; return; }
+    const n = this.nodes[army.free ? army.target : army.path[army.index + 1]];
+    if(!n)return;
+    if (!army.free && n.owner === army.owner && army.index + 2 < army.path.length) { army.index++; army.progress = 0; return; }
     if (n.owner === army.owner) { n.power = Math.min(LEVELS[n.level].cap * 4, n.power + army.power); }
     else {
       const current = n.attackers.find(a => a.owner === army.owner);
@@ -183,10 +206,11 @@ export class Game {
     army.power = 0;
   }
   armyPoint(a) {
-    const from = this.nodes[a.path[a.index]], to = this.nodes[a.path[a.index + 1]];
+    const from = a.free?a.from:this.nodes[a.path[a.index]], to = a.free?a.destination:this.nodes[a.path[a.index + 1]];
     return { x: from.x + (to.x - from.x) * a.progress, y: from.y + (to.y - from.y) * a.progress };
   }
   returnGhostArmy(army) {
+    if(army.free){const p=this.armyPoint(army),n=this.owned(army.owner).sort((a,b)=>this.distance(a,p)-this.distance(b,p))[0];if(n){army.from=p;army.destination={x:n.x,y:n.y};army.target=n.id;army.progress=0;}army.ghostId=null;return;}
     const from = army.path[army.index], to = army.path[army.index + 1];
     let candidates = this.owned(army.owner).map(n => this.route(army.owner, from, n.id)).filter(Boolean).sort((a,b) => this.routeTime(a) - this.routeTime(b));
     const tail = candidates[0] || [from];
@@ -200,10 +224,12 @@ export class Game {
     // Contact is symmetric; no fixed owner gets first-strike advantage.
     for (let i = 0; i < this.armies.length; i++) for (let j = i + 1; j < this.armies.length; j++) {
       const a = this.armies[i], b = this.armies[j]; if (a.owner === b.owner || a.power <= 0 || b.power <= 0) continue;
+      if(a.free||b.free){if(this.distance(this.armyPoint(a),this.armyPoint(b))>14)continue;}else{
       const af = a.path[a.index], at = a.path[a.index + 1], bf = b.path[b.index], bt = b.path[b.index + 1];
       if (!((af === bf && at === bt) || (af === bt && at === bf))) continue;
       const bp = af === bf ? b.progress : 1 - b.progress;
       if (Math.abs(a.progress - bp) > .045) continue;
+      }
       if (blocked.has(a.id) || blocked.has(b.id)) continue;
       blocked.add(a.id); blocked.add(b.id);
       if (combat) {
@@ -215,6 +241,14 @@ export class Game {
     for (const [a,d] of damage) this.killDamage(a,d.amount,d.killer,a.owner);
     for (const a of this.armies) {
       if (a.power <= 0 || blocked.has(a.id)) continue;
+      if(a.free){
+        const duration=Math.max(.05,this.distance(a.from,a.destination)/28*({small:1.6,medium:1.7,large:1.8}[this.options.size]));
+        const resonance=a.target!==null&&this.nodes[a.source]?.owner===a.owner&&this.nodes[a.target]?.owner===a.owner&&this.resonant(a.source)?1.35:1;
+        a.progress=Math.min(1,a.progress+dt/duration*(this.factions[a.owner].hasteUntil>this.time?1.7:1)*resonance);
+        for(const g of this.ghosts)if(g.owner!==a.owner&&g.expires>this.time&&this.distance(this.armyPoint(a),g)<14){g.expires=this.time;this.emit('ghostGone',{x:g.x,y:g.y,owner:g.owner});if(a.ghostId===g.id)this.returnGhostArmy(a);}
+        if(a.progress>=1&&a.target!==null)this.arrive(a);
+        continue;
+      }
       const nextNode = this.nodes[a.path[a.index + 1]];
       if (!a.ghostId && nextNode.owner !== a.owner && a.index + 2 < a.path.length) { a.path = a.path.slice(0,a.index+2); a.target = nextNode.id; }
       a.progress += dt / this.edgeTime(a.path[a.index], a.path[a.index + 1]) * (this.factions[a.owner].hasteUntil > this.time ? 1.7 : 1);
@@ -333,6 +367,7 @@ export class Game {
         const {n,path} = candidates[0], endpoint = path.at(-1), other = endpoint === g.a ? g.b : g.a;
         const amount = Math.min(count(n) - 4, 6); n.power -= amount * 4; acted.add(n.id); orders++;
         this.armies.push({ id: this.nextId++, owner: f.id, power: amount * 4, path: [...path,other], index: 0, progress: 0, source: n.id, target: other, ghostId: g.id });
+        if(this.options.freeCommand){const army=this.armies.at(-1);Object.assign(army,{free:true,from:{x:n.x,y:n.y},destination:{x:g.x,y:g.y},target:null});}
         g.responded.push(f.id); this.stats.ghostResponses++; this.emit('decoy', { owner: f.id, node: n.id }); break;
       }
     }
@@ -389,7 +424,7 @@ export class Game {
       if (!Number.isFinite(n.hp) || n.hp < 0 || n.hp > LEVELS[n.level].hp + 1e-6) throw Error(`Invalid wall ${n.id}`);
       if (n.owner >= 0 && !this.factions[n.owner].alive) throw Error('Eliminated city owner');
     }
-    for (const a of this.armies) { if (a.power <= 0 || !Number.isFinite(a.progress) || !this.nodes[a.path[a.index+1]] || !this.factions[a.owner].alive) throw Error('Invalid army'); }
+    for (const a of this.armies) { if (a.power <= 0 || !Number.isFinite(a.progress) || (a.free?(!this.validPoint(a.from)||!this.validPoint(a.destination)||a.progress<0||a.progress>1||(a.target!==null&&!this.nodes[a.target])):!this.nodes[a.path[a.index+1]]) || !this.factions[a.owner].alive) throw Error('Invalid army'); }
     for (const f of this.factions) if (f.hand.length > 5) throw Error('Hand overflow');
     return true;
   }

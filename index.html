@@ -16,7 +16,7 @@
       <div class="header-actions"><button id="help-button" class="icon-button" aria-label="玩法说明">?</button><button id="settings-button" class="icon-button" aria-label="设置与暂停"><svg viewBox="0 0 24 24"><path d="M4 7h16M4 17h16M8 4v6M16 14v6"/></svg></button><button id="exit-button" class="icon-button" aria-label="退出对局"><svg viewBox="0 0 24 24"><path d="M10 4H5v16h5M10 12h11M17 8l4 4-4 4"/></svg></button></div>
     </header>
     <section class="battle-status" aria-label="战场状态"><div><span class="status-label">我方古树</span><strong id="owned-count">一</strong><span class="total-count"> / <span id="total-count">12</span></span></div><div class="battle-caption"><span id="map-name">青木初醒</span><small id="clock">00:00</small></div><div id="faction-counts" class="faction-counts"></div></section>
-    <section id="battlefield" aria-label="山河战场，点击古树查看详情，拖拽己方古树御灵">
+    <section id="battlefield" aria-label="山河战场，点击古树查看详情，拉圆选灵后点击落点御灵">
       <canvas id="map-canvas" aria-label="水墨战场"></canvas>
       <div class="map-inscription" aria-hidden="true"><span id="map-inscription-title">青木初醒</span><small>山 河 入 墨</small></div>
       <div id="node-controls" class="node-controls" aria-label="可选择的古树"></div>
@@ -33,7 +33,7 @@
     <footer class="game-footer"><span>守树有方，落子无悔</span><span id="seed-label">山河卷 73129</span></footer>
     <div id="toast" role="status" aria-live="polite"></div>
   </main>
-  <aside class="desktop-guide" aria-hidden="true"><span class="guide-chapter">灵 法 · 三 则</span><p><b>调灵</b>画圈选灵，一划齐发</p><p><b>养树</b>以灵蕴养，步步为营</p><p><b>用计</b>虚实相生，一招制胜</p><div class="guide-line"></div><small>单机离线 · 无需登录<br>建议竖屏游玩</small></aside>
+  <aside class="desktop-guide" aria-hidden="true"><span class="guide-chapter">灵 法 · 三 则</span><p><b>调灵</b>拉圆选灵，点地即行</p><p><b>养树</b>以灵蕴养，步步为营</p><p><b>用计</b>虚实相生，一招制胜</p><div class="guide-line"></div><small>单机离线 · 无需登录<br>建议竖屏游玩</small></aside>
   <dialog id="main-dialog"></dialog>
   <script type="module" src="src/app.js"></script>
 </body>

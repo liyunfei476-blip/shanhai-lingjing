@@ -2,7 +2,7 @@ import {Game} from '../src/engine.js';
 import {mkdir,writeFile} from 'node:fs/promises';
 const total=Number(process.argv[2])||216,results=[],started=performance.now();
 for(let i=0;i<total;i++){
-  const options={seed:1000+i,size:['small','medium','large'][i%3],opponents:1+Math.floor(i/3)%3,difficulty:['easy','standard','hard'][Math.floor(i/9)%3],autoPlayer:true};
+  const options={seed:1000+i,size:['small','medium','large'][i%3],opponents:1+Math.floor(i/3)%3,difficulty:['easy','standard','hard'][Math.floor(i/9)%3],autoPlayer:true,freeCommand:true};
   const g=new Game(options);let steps=0;
   while(g.time<1800&&g.status==='playing'){g.step(.1);if(steps++%20===0)g.assertValid();}
   g.assertValid();results.push({options,seconds:Math.round(g.time),status:g.status,winner:g.winner,stats:g.stats,upgrades:g.factions.map(f=>f.upgrades),factions:g.factions.map(f=>({id:f.id,cities:g.owned(f.id).length,trait:f.trait}))});
